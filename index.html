@@ -616,14 +616,57 @@
     </script>
     <script>
         // js/ocean.js
+        const THEME_CONFIGS = {
+            dark: {
+                waterColor: 0x001e0f,
+                waterSunColor: 0xffffff,
+                skyTurbidity: 10,
+                skyRayleigh: 2,
+                skyMieCoefficient: 0.005,
+                skyMieDirectionalG: 0.8,
+                fogColor: 0x0a141e, // Darker fog for dark mode
+                ambientLightIntensity: 0.2,
+                sunLightIntensity: 0.8,
+                toneMappingExposure: 0.5,
+            },
+            light: {
+                waterColor: 0x60a3d9, // Lighter, bluer water
+                waterSunColor: 0xf0f0f0,
+                skyTurbidity: 6,    // Less hazy
+                skyRayleigh: 1.5,
+                skyMieCoefficient: 0.003,
+                skyMieDirectionalG: 0.7,
+                fogColor: 0xabcdef, // Light blue fog
+                ambientLightIntensity: 0.5, // Brighter ambient
+                sunLightIntensity: 1.2,   // Brighter sun
+                toneMappingExposure: 0.7,
+            }
+        };
+
         class Ocean {
             constructor(options = {}) {
+                this.currentTheme = 'dark';
+                const initialThemeConfig = THEME_CONFIGS[this.currentTheme];
+
                 this.options = Object.assign({
-                    scene: null, renderer: null, camera: null, size: 10000, segments: 128, waterColor: 0x001e0f, 
-                    waterDistortionScale: 3.7, waterSunColor: 0xffffff, skyExposure: 0.5, skyRayleigh: 2, 
-                    skyTurbidity: 10, skyMieCoefficient: 0.005, skyMieDirectionalG: 0.8, fogEnabled: true, 
-                    fogColor: 0x5d8fbd, fogNear: 50, fogFar: 1500, windDirection: randomFloat(0, 360), 
-                    windSpeed: randomFloat(2, 8), timeOfDay: 0.25, 
+                    scene: null, renderer: null, camera: null, size: 10000, segments: 128,
+                    waterDistortionScale: 3.7, 
+                    fogEnabled: true, 
+                    fogNear: 50, fogFar: 1500, 
+                    windDirection: randomFloat(0, 360), 
+                    windSpeed: randomFloat(2, 8), 
+                    timeOfDay: 0.25,
+                    // Apply initial theme defaults
+                    waterColor: initialThemeConfig.waterColor,
+                    waterSunColor: initialThemeConfig.waterSunColor,
+                    skyTurbidity: initialThemeConfig.skyTurbidity,
+                    skyRayleigh: initialThemeConfig.skyRayleigh,
+                    skyMieCoefficient: initialThemeConfig.skyMieCoefficient,
+                    skyMieDirectionalG: initialThemeConfig.skyMieDirectionalG,
+                    fogColor: initialThemeConfig.fogColor,
+                    ambientLightIntensity: initialThemeConfig.ambientLightIntensity,
+                    sunLightIntensity: initialThemeConfig.sunLightIntensity,
+                    toneMappingExposure: initialThemeConfig.toneMappingExposure
                 }, options);
 
                 if (!this.options.scene || !this.options.renderer || !this.options.camera) {
@@ -636,8 +679,63 @@
                 this.windChangeTimer = randomFloat(10, 30); 
                 this.targetWindDirection = this.windDirection; this.targetWindSpeed = this.windSpeed;
 
-                this.createWater(); this.createSky(); this.setupFog(); this.createLighting(); this.updateSunPosition(); 
+                this.createWater(); 
+                this.createSky(); 
+                this.setupFog(); 
+                this.createLighting(); 
+                this.updateSunPosition(); 
             }
+
+            setTheme(themeName) {
+                if (!THEME_CONFIGS[themeName]) {
+                    console.warn(`Ocean: Theme '${themeName}' not found.`);
+                    return;
+                }
+                this.currentTheme = themeName;
+                const themeConf = THEME_CONFIGS[this.currentTheme];
+
+                // Update options with new theme values
+                this.options.waterColor = themeConf.waterColor;
+                this.options.waterSunColor = themeConf.waterSunColor;
+                this.options.skyTurbidity = themeConf.skyTurbidity;
+                this.options.skyRayleigh = themeConf.skyRayleigh;
+                this.options.skyMieCoefficient = themeConf.skyMieCoefficient;
+                this.options.skyMieDirectionalG = themeConf.skyMieDirectionalG;
+                this.options.fogColor = themeConf.fogColor;
+                this.options.ambientLightIntensity = themeConf.ambientLightIntensity;
+                this.options.sunLightIntensity = themeConf.sunLightIntensity;
+                this.options.toneMappingExposure = themeConf.toneMappingExposure;
+
+
+                if (this.water) {
+                    this.water.material.uniforms.waterColor.value.setHex(themeConf.waterColor);
+                    this.water.material.uniforms.sunColor.value.setHex(themeConf.waterSunColor);
+                }
+                if (this.sky) {
+                    this.sky.material.uniforms.turbidity.value = themeConf.skyTurbidity;
+                    this.sky.material.uniforms.rayleigh.value = themeConf.skyRayleigh;
+                    this.sky.material.uniforms.mieCoefficient.value = themeConf.skyMieCoefficient;
+                    this.sky.material.uniforms.mieDirectionalG.value = themeConf.skyMieDirectionalG;
+                }
+                if (this.scene.fog) {
+                    this.scene.fog.color.setHex(themeConf.fogColor);
+                    if (this.scene.background instanceof THREE.Color) {
+                         this.scene.background.setHex(themeConf.fogColor);
+                    }
+                }
+                if (this.ambientLight) {
+                    this.ambientLight.intensity = themeConf.ambientLightIntensity;
+                }
+                if (this.sunLight) {
+                    this.baseSunLightIntensity = themeConf.sunLightIntensity; // Store base for timeOfDay adjustments
+                }
+                if (this.renderer) {
+                    this.renderer.toneMappingExposure = themeConf.toneMappingExposure;
+                }
+                
+                this.updateSunPosition(); // Re-apply sun and dynamic lighting/fog
+            }
+
 
             createWater() {
                 const waterGeometry = new THREE.PlaneGeometry(this.options.size, this.options.size);
@@ -646,8 +744,10 @@
                     waterNormals: new THREE.TextureLoader().load('https://threejs.org/examples/textures/waternormals.jpg', (texture) => {
                         texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
                     }),
-                    alpha: 1.0, sunDirection: new THREE.Vector3(), sunColor: this.options.waterSunColor,
-                    waterColor: this.options.waterColor, distortionScale: this.options.waterDistortionScale,
+                    alpha: 1.0, sunDirection: new THREE.Vector3(), 
+                    sunColor: this.options.waterSunColor, // Use theme option
+                    waterColor: this.options.waterColor, // Use theme option
+                    distortionScale: this.options.waterDistortionScale,
                     fog: this.options.fogEnabled
                 });
                 this.water.rotation.x = -Math.PI / 2; this.water.position.y = 0; 
@@ -658,26 +758,34 @@
                 this.sky = new THREE.Sky(); this.sky.scale.setScalar(this.options.size); 
                 this.scene.add(this.sky);
                 const skyUniforms = this.sky.material.uniforms;
-                skyUniforms['turbidity'].value = this.options.skyTurbidity; skyUniforms['rayleigh'].value = this.options.skyRayleigh;
-                skyUniforms['mieCoefficient'].value = this.options.skyMieCoefficient; skyUniforms['mieDirectionalG'].value = this.options.skyMieDirectionalG;
+                skyUniforms['turbidity'].value = this.options.skyTurbidity; // Use theme option
+                skyUniforms['rayleigh'].value = this.options.skyRayleigh;   // Use theme option
+                skyUniforms['mieCoefficient'].value = this.options.skyMieCoefficient; // Use theme option
+                skyUniforms['mieDirectionalG'].value = this.options.skyMieDirectionalG; // Use theme option
             }
 
             setupFog() {
                 if (this.options.fogEnabled) {
-                    this.scene.fog = new THREE.Fog(this.options.fogColor, this.options.fogNear, this.options.fogFar);
-                    this.scene.background = new THREE.Color(this.options.fogColor);
+                    this.scene.fog = new THREE.Fog(this.options.fogColor, this.options.fogNear, this.options.fogFar); // Use theme option
+                    if (this.scene.background === null || !(this.scene.background instanceof THREE.Texture)){
+                        this.scene.background = new THREE.Color(this.options.fogColor); // Use theme option
+                    }
                 }
             }
 
             createLighting() {
-                this.ambientLight = new THREE.AmbientLight(0xffffff, 0.2); this.scene.add(this.ambientLight);
-                this.sunLight = new THREE.DirectionalLight(0xffffff, 0.8); 
+                this.ambientLight = new THREE.AmbientLight(0xffffff, this.options.ambientLightIntensity); // Use theme option
+                this.scene.add(this.ambientLight);
+
+                this.baseSunLightIntensity = this.options.sunLightIntensity; // Store base from theme
+                this.sunLight = new THREE.DirectionalLight(0xffffff, this.baseSunLightIntensity); 
                 this.sunLight.castShadow = true; this.sunLight.shadow.mapSize.width = 2048; this.sunLight.shadow.mapSize.height = 2048;
                 this.sunLight.shadow.camera.near = 0.5; this.sunLight.shadow.camera.far = 5000; 
                 const shadowCamSize = 200;
                 this.sunLight.shadow.camera.left = -shadowCamSize; this.sunLight.shadow.camera.right = shadowCamSize;
                 this.sunLight.shadow.camera.top = shadowCamSize; this.sunLight.shadow.camera.bottom = -shadowCamSize;
                 this.scene.add(this.sunLight); this.scene.add(this.sunLight.target); 
+                if(this.renderer) this.renderer.toneMappingExposure = this.options.toneMappingExposure; // Use theme option
             }
 
             updateSunPosition() {
@@ -690,27 +798,51 @@
                     sunPosition.y = sunDistance * Math.sin(elevationRad);
                     sunPosition.z = sunDistance * Math.cos(elevationRad) * Math.cos(azimuthRad);
                 } else { sunPosition.set(0, -sunDistance, 0); }
+
                 this.sky.material.uniforms['sunPosition'].value.copy(sunPosition);
                 this.water.material.uniforms['sunDirection'].value.copy(sunPosition).normalize();
                 this.sunLight.position.copy(sunPosition); this.sunLight.target.position.set(0,0,0); 
-                const exposure = Math.max(0.1, Math.sin(this.timeOfDay * Math.PI) * 0.5 + 0.1); 
-                this.renderer.toneMappingExposure = exposure;
-                const sunIntensity = Math.max(0, Math.sin(this.timeOfDay * Math.PI)); 
-                this.sunLight.intensity = sunIntensity * 1.5; 
-                this.ambientLight.intensity = sunIntensity * 0.3 + 0.05; 
+                
+                const themeConf = THEME_CONFIGS[this.currentTheme];
+                const timeBasedSunFactor = Math.max(0, Math.sin(this.timeOfDay * Math.PI));
+                
+                this.sunLight.intensity = timeBasedSunFactor * this.baseSunLightIntensity; // Use stored base intensity
+                // A more robust ambient light calculation based on theme and time
+                const ambientBase = themeConf.ambientLightIntensity * 0.25; // Base ambient for night
+                const ambientDayBoost = themeConf.ambientLightIntensity * 0.75; // Additional ambient during day
+                this.ambientLight.intensity = ambientBase + (timeBasedSunFactor * ambientDayBoost);
+
+                this.renderer.toneMappingExposure = themeConf.toneMappingExposure; 
+                // Could also add a time-based exposure variation if desired:
+                // this.renderer.toneMappingExposure = lerp(themeConf.toneMappingExposure * 0.5, themeConf.toneMappingExposure, timeBasedSunFactor);
+
+
                 if (this.options.fogEnabled && this.scene.fog) {
-                    const morningColor = new THREE.Color(0.8, 0.7, 0.6); const dayColor = new THREE.Color(this.options.fogColor); 
-                    const eveningColor = new THREE.Color(0.9, 0.6, 0.5); const nightColor = new THREE.Color(0.05, 0.05, 0.15); 
+                    // Define day/evening/night colors relative to the theme's base fog color
+                    const baseFog = new THREE.Color(themeConf.fogColor);
+                    const morningColor = baseFog.clone().multiplyScalar(1.1).lerp(new THREE.Color(0.8, 0.7, 0.6), 0.3);
+                    const dayColor = baseFog.clone();
+                    const eveningColor = baseFog.clone().multiplyScalar(0.9).lerp(new THREE.Color(0.9, 0.6, 0.5), 0.4);
+                    const nightColor = baseFog.clone().multiplyScalar(0.5); // Significantly darker for night
+
                     let currentFogColor = new THREE.Color();
-                    if (this.timeOfDay < 0.2 || this.timeOfDay > 0.8) { 
-                        currentFogColor.lerpColors(eveningColor, nightColor, (this.timeOfDay > 0.8 ? (this.timeOfDay - 0.8) / 0.2 : (0.2 - this.timeOfDay) / 0.2) );
-                         if (this.timeOfDay < 0.2) currentFogColor.lerpColors(nightColor, morningColor, (this.timeOfDay / 0.2)); 
-                         else currentFogColor = nightColor;
-                    } else if (this.timeOfDay < 0.4) { currentFogColor.lerpColors(morningColor, dayColor, (this.timeOfDay - 0.2) / 0.2); } 
-                      else if (this.timeOfDay < 0.6) { currentFogColor = dayColor; } 
-                      else { currentFogColor.lerpColors(dayColor, eveningColor, (this.timeOfDay - 0.6) / 0.2); }
+                    if (this.timeOfDay < 0.2 || this.timeOfDay > 0.8) { // Night transitioning to/from evening
+                        if (this.timeOfDay < 0.2) { // Transition from night to morning
+                             currentFogColor.lerpColors(nightColor, morningColor, this.timeOfDay / 0.2);
+                        } else { // Transition from evening to night
+                             currentFogColor.lerpColors(eveningColor, nightColor, (this.timeOfDay - 0.8) / 0.2);
+                        }
+                    } else if (this.timeOfDay < 0.4) { // Morning to Day
+                        currentFogColor.lerpColors(morningColor, dayColor, (this.timeOfDay - 0.2) / 0.2); 
+                    } else if (this.timeOfDay < 0.6) { // Day
+                        currentFogColor = dayColor; 
+                    } else { // Day to Evening
+                        currentFogColor.lerpColors(dayColor, eveningColor, (this.timeOfDay - 0.6) / 0.2); 
+                    }
                     this.scene.fog.color.copy(currentFogColor);
-                    if (this.scene.background instanceof THREE.Color) { this.scene.background.copy(currentFogColor); }
+                    if (this.scene.background instanceof THREE.Color) { 
+                        this.scene.background.copy(currentFogColor); 
+                    }
                 }
             }
 
@@ -737,7 +869,8 @@
             }
 
             updateTimeOfDay(deltaTime) {
-                this.timeOfDay = (this.timeOfDay + deltaTime / 300) % 1; this.updateSunPosition();
+                this.timeOfDay = (this.timeOfDay + deltaTime / 300) % 1; 
+                this.updateSunPosition();
             }
 
             update(deltaTime) {
@@ -773,7 +906,7 @@
                 this.renderer.setSize(this.options.width, this.options.height);
                 this.renderer.setPixelRatio(window.devicePixelRatio);
                 this.renderer.toneMapping = THREE.ACESFilmicToneMapping; 
-                this.renderer.toneMappingExposure = 0.6; 
+                // this.renderer.toneMappingExposure = 0.6; // Now handled by Ocean class
                 this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
                 this.container.appendChild(this.renderer.domElement);
             }
@@ -1000,6 +1133,8 @@
     </script>
     <script>
         // main.js
+        // Make gameInstance globally accessible for the theme switcher.
+        let gameInstance = null; 
         document.addEventListener('DOMContentLoaded', function() {
             function createLoadingScreen() {
                 const loadingScreen = document.createElement('div'); loadingScreen.id = 'loading-screen';
@@ -1016,7 +1151,8 @@
                     setTimeout(() => { if (loadingElements.screen.parentNode) { loadingElements.screen.parentNode.removeChild(loadingElements.screen); } }, 500); 
                 }
             }
-            const loadingElements = createLoadingScreen(); let gameInstance = null;
+            const loadingElements = createLoadingScreen();
+            // gameInstance is declared in the outer scope.
             console.log('게임 초기화 시작');
             if (typeof THREE === 'undefined') { console.error('THREE.js 라이브러리를 찾을 수 없습니다!'); loadingElements.text.textContent = '오류: THREE.js 로드 실패'; loadingElements.bar.style.backgroundColor = 'red'; return; }
             if (typeof THREE.OrbitControls === 'undefined') { console.warn('OrbitControls를 찾을 수 없습니다! 자유 카메라 모드가 제한될 수 있습니다.'); }
@@ -1024,7 +1160,7 @@
             if (typeof THREE.Sky === 'undefined') { console.error('Sky를 찾을 수 없습니다!'); loadingElements.text.textContent = '오류: Sky 로드 실패'; loadingElements.bar.style.backgroundColor = 'red'; return; }
             try {
                 if (typeof Game === 'undefined') { throw new Error('Game 클래스를 찾을 수 없습니다.'); }
-                gameInstance = new Game({
+                gameInstance = new Game({ // Assign to the globally scoped gameInstance
                     containerId: 'game-container',
                     onProgress: function(progress) { loadingElements.bar.style.width = `${progress * 100}%`; console.log(`로딩 진행: ${progress * 100}%`); },
                     onLoad: function() {
@@ -1046,10 +1182,25 @@
 
         themeSwitcher.addEventListener('click', () => {
             body.classList.toggle('light-mode');
+            let currentThemeName = 'dark'; // Default to dark
+
             if (body.classList.contains('light-mode')) {
                 themeSwitcher.textContent = 'Switch to Dark Mode';
+                currentThemeName = 'light';
             } else {
                 themeSwitcher.textContent = 'Switch to Light Mode';
+                currentThemeName = 'dark'; // Already default, but explicit
+            }
+
+            // Check if gameInstance and gameInstance.ocean and setTheme are available
+            if (typeof gameInstance !== 'undefined' && gameInstance && 
+                gameInstance.ocean && typeof gameInstance.ocean.setTheme === 'function') {
+                gameInstance.ocean.setTheme(currentThemeName);
+            } else {
+                console.warn('Game instance or ocean not available for theming at the moment of theme switch.');
+                // This might happen if the gameInstance is not yet fully initialized when this script runs
+                // or if the theme button is clicked very early.
+                // For this setup, gameInstance should be available as it's initialized within DOMContentLoaded.
             }
         });
     </script>
