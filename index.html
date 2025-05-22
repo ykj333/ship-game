@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>항해 게임</title>
+    <style>
+        /* style.css */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            overflow: hidden; /* Prevent scrollbars from appearing due to game canvas */
+            background-color: #000; /* Fallback background */
+            color: #fff;
+            margin: 0; /* Ensure no default body margin */
+            height: 100vh; /* Full viewport height */
+            display: flex; /* For centering game container if needed */
+            justify-content: center;
+            align-items: center;
+        }
+
+        #game-container {
+            position: absolute; 
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 2;
+            max-width: 300px; /* Max width for info panel */
+            color: #fff; /* Ensure text is visible */
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 15px;
+            color: #4a9df5;
+            text-align: center;
+        }
+
+        #controls {
+            margin-bottom: 15px;
+            border-bottom: 1px solid #4a9df5;
+            padding-bottom: 10px;
+        }
+
+        #controls p {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        #controls ul {
+            list-style-type: none;
+            padding-left: 10px;
+        }
+
+        #controls li {
+            margin-bottom: 5px;
+        }
+
+        #stats {
+            font-size: 14px;
+        }
+
+        #stats p {
+            margin-bottom: 5px;
+        }
+
+        #stats span {
+            font-weight: bold;
+            color: #4a9df5;
+        }
+
+        /* 로딩 화면 */
+        #loading-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+            transition: opacity 0.5s ease;
+        }
+
+        #loading-text {
+            color: #4a9df5;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+
+        .loading-bar-container {
+            width: 300px;
+            height: 20px;
+            background-color: #333;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .loading-bar {
+            height: 100%;
+            width: 0%; /* Initial width */
+            background-color: #4a9df5;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h1>항해 게임</h1>
+        <div id="controls">
+            <p>조작 방법:</p>
+            <ul>
+                <li>W / ↑: 전진</li>
+                <li>S / ↓: 후진</li>
+                <li>A / ←: 좌회전</li>
+                <li>D / →: 우회전</li>
+                <li>스페이스바: 돛 올리기/내리기</li>
+                <li>1, 2, 3, 4: 카메라 변경</li>
+            </ul>
+        </div>
+        <div id="stats">
+            <p>속도: <span id="speed">0</span> 노트</p>
+            <p>방향: <span id="direction">북</span></p>
+            <p>바람: <span id="wind">0</span> 노트</p>
+        </div>
+    </div>
+
+    <div id="game-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/objects/Water.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/objects/Sky.js"></script>
+
+    <script>
+        // js/utils.js
+        /**
+         * 유틸리티 함수 모음
+         */
+
+        // 각도를 라디안으로 변환
+        function degToRad(degrees) {
+            return degrees * Math.PI / 180;
+        }
+
+        // 라디안을 각도로 변환
+        function radToDeg(radians) {
+            return radians * 180 / Math.PI;
+        }
+
+        // 두 값 사이의 선형 보간
+        function lerp(start, end, t) {
+            return start * (1 - t) + end * t;
+        }
+
+        // 값을 특정 범위로 제한
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        // 랜덤 정수 생성 (min 이상, max 미만)
+        function randomInt(min, max) {
+            return Math.floor(Math.random() * (max - min)) + min;
+        }
+
+        // 랜덤 부동 소수점 생성 (min 이상, max 이하)
+        function randomFloat(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        // 방향 문자열 반환 (북, 북동, 동, 남동, 남, 남서, 서, 북서)
+        function getDirectionString(angle) {
+            // 각도를 0-360 범위로 정규화
+            const normalizedAngle = ((angle % 360) + 360) % 360;
+
+            // 방향 배열 (시계 방향으로 북쪽부터 시작)
+            const directions = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
+
+            // 각도를 8방향으로 매핑 (각 방향은 45도 범위)
+            const index = Math.round(normalizedAngle / 45) % 8;
+
+            return directions[index];
+        }
+
+        // 바람 속도에 따른 보퍼트 풍력 계급 반환
+        function getBeaufortScale(windSpeed) {
+            const beaufortScale = [
+                { force: 0, description: '고요함', maxSpeed: 0.5 },
+                { force: 1, description: '실바람', maxSpeed: 1.5 },
+                { force: 2, description: '남실바람', maxSpeed: 3.3 },
+                { force: 3, description: '산들바람', maxSpeed: 5.5 },
+                { force: 4, description: '건들바람', maxSpeed: 7.9 },
+                { force: 5, description: '흔들바람', maxSpeed: 10.7 },
+                { force: 6, description: '된바람', maxSpeed: 13.8 },
+                { force: 7, description: '센바람', maxSpeed: 17.1 },
+                { force: 8, description: '큰바람', maxSpeed: 20.7 },
+                { force: 9, description: '큰센바람', maxSpeed: 24.4 },
+                { force: 10, description: '노대바람', maxSpeed: 28.4 },
+                { force: 11, description: '왕바람', maxSpeed: 32.6 },
+                { force: 12, description: '싹쓸바람', maxSpeed: Infinity }
+            ];
+
+            for (let i = 0; i < beaufortScale.length; i++) {
+                if (windSpeed <= beaufortScale[i].maxSpeed) {
+                    return beaufortScale[i];
+                }
+            }
+
+            return beaufortScale[beaufortScale.length - 1];
+        }
+
+        // 노트를 km/h로 변환
+        function knotsToKmh(knots) {
+            return knots * 1.852;
+        }
+
+        // km/h를 노트로 변환
+        function kmhToKnots(kmh) {
+            return kmh / 1.852;
+        }
+
+        // 두 3D 위치 사이의 거리 계산
+        function distance3D(pos1, pos2) {
+            const dx = pos2.x - pos1.x;
+            const dy = pos2.y - pos1.y;
+            const dz = pos2.z - pos1.z;
+            return Math.sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        // 로딩 관리자 클래스
+        class LoadingManager {
+            constructor(onLoad, onProgress) {
+                this.totalItems = 0;
+                this.loadedItems = 0;
+                this.onLoad = onLoad || (() => {});
+                this.onProgress = onProgress || (() => {});
+            }
+
+            addItem() {
+                this.totalItems++;
+                return this;
+            }
+
+            itemLoaded() {
+                this.loadedItems++;
+                const progress = this.totalItems > 0 ? this.loadedItems / this.totalItems : 0;
+                this.onProgress(progress);
+
+                if (this.loadedItems === this.totalItems) {
+                    this.onLoad();
+                }
+
+                return this;
+            }
+
+            reset() {
+                this.totalItems = 0;
+                this.loadedItems = 0;
+                return this;
+            }
+        }
+    </script>
+    <script>
+        // js/ship.js
+        /**
+         * 선박 클래스
+         * 선박 모델, 물리, 제어를 처리합니다.
+         */
+        class Ship {
+            constructor(options = {}) {
+                // 기본 옵션 설정
+                this.options = Object.assign({
+                    scene: null,
+                    initialPosition: new THREE.Vector3(0, 0, 0),
+                    initialRotation: new THREE.Euler(0, 0, 0),
+                    scale: 1.0,
+                    maxSpeed: 10, // 최대 속도 (노트)
+                    acceleration: 0.05, // 가속도
+                    rotationSpeed: 0.02, // 회전 속도
+                    dragCoefficient: 0.98, // 항력 계수
+                    sailDeployed: false, // 돛 상태
+                }, options);
+
+                // 필수 옵션 확인
+                if (!this.options.scene) {
+                    throw new Error('Ship requires a scene');
+                }
+
+                // 속성 초기화
+                this.scene = this.options.scene;
+                this.position = this.options.initialPosition.clone();
+                this.rotation = this.options.initialRotation.clone();
+                this.velocity = new THREE.Vector3(0, 0, 0);
+                this.speed = 0; // 현재 속도 (노트)
+                this.direction = 0; // 현재 방향 (도)
+                this.sailDeployed = this.options.sailDeployed;
+                this.isSailAnimating = false; // 돛 애니메이션 상태
+
+                // 선박 모델 생성
+                this.createShipModel();
+
+                // 키 입력 상태
+                this.keys = {
+                    forward: false,
+                    backward: false,
+                    left: false,
+                    right: false,
+                    sail: false 
+                };
+
+                // 키보드 이벤트 리스너 설정
+                this.setupKeyboardControls();
+            }
+
+            // 선박 모델 생성
+            createShipModel() {
+                this.shipGroup = new THREE.Group();
+                this.shipGroup.position.copy(this.position);
+                this.shipGroup.rotation.copy(this.rotation);
+                this.shipGroup.scale.set(this.options.scale, this.options.scale, this.options.scale);
+
+                const hullMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 }); 
+                const mainHullGeom = new THREE.BoxGeometry(2.2, 0.8, 5); 
+                this.mainHull = new THREE.Mesh(mainHullGeom, hullMaterial);
+                this.mainHull.position.y = 0.4; 
+                this.shipGroup.add(this.mainHull);
+
+                const deckMaterial = new THREE.MeshPhongMaterial({ color: 0xA0522D }); 
+                const deckGeom = new THREE.BoxGeometry(2.0, 0.1, 4.8); 
+                this.deck = new THREE.Mesh(deckGeom, deckMaterial);
+                this.deck.position.y = 0.85; 
+                this.shipGroup.add(this.deck);
+
+                const cabinMaterial = new THREE.MeshPhongMaterial({ color: 0x8B5A2B }); 
+                const cabinGeom = new THREE.BoxGeometry(1.2, 0.7, 1.5);
+                this.cabin = new THREE.Mesh(cabinGeom, cabinMaterial);
+                this.cabin.position.set(0, 0.85 + 0.35, 1.0); 
+                this.shipGroup.add(this.cabin);
+                
+                const mastMaterial = new THREE.MeshPhongMaterial({ color: 0x5C3A21 }); 
+                this.mast = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 5.5, 12)); 
+                this.mast.position.set(0, 0.85 + (5.5/2) - 0.5, -0.5); // 돛대 위치 약간 조정
+                this.shipGroup.add(this.mast);
+
+                // --- 정크 리그 돛 (Junk Rig Sail) ---
+                this.sailGroup = new THREE.Group();
+                this.mast.add(this.sailGroup); // 돛 그룹을 돛대에 추가
+
+                const sailClothMaterial = new THREE.MeshPhongMaterial({
+                    color: 0xF0EAD6, 
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0.9,
+                });
+                const battenMaterial = new THREE.MeshPhongMaterial({ color: 0xD2B48C }); // Tan color for battens
+
+                const sailWidth = 3.0; // 돛 너비
+                const sailHeight = 5.5; // 돛 높이
+                const numBattens = 7; // 가로 지지대 개수
+
+                // 주 돛 표면
+                const mainSailPlane = new THREE.Mesh(new THREE.PlaneGeometry(sailWidth, sailHeight), sailClothMaterial);
+                mainSailPlane.position.y = sailHeight / 2; // 돛 그룹 내에서 돛의 y 위치 조정
+                this.sailGroup.add(mainSailPlane);
+
+                // 가로 지지대 (Battens)
+                for (let i = 0; i <= numBattens; i++) {
+                    const batten = new THREE.Mesh(new THREE.BoxGeometry(sailWidth * 1.05, 0.08, 0.08), battenMaterial);
+                    batten.position.y = (i * (sailHeight / numBattens)); // 돛 높이에 따라 균등하게 배치
+                    batten.position.z = 0.04; // 돛 표면보다 약간 앞으로
+                    this.sailGroup.add(batten);
+                }
+                
+                this.sailGroup.position.set(0, - (5.5/2) + 0.5 , 0); // 돛 그룹의 초기 위치 (돛대 하단 근처)
+                                                                    // 돛대 높이(5.5)의 절반만큼 내리고, 돛 자체 높이(5.5)의 절반만큼 올려서 돛대 중앙에 오도록, 약간의 오프셋 추가
+                this.sailGroup.rotation.x = this.sailDeployed ? 0 : -Math.PI / 2; // 초기에는 접혀 있도록 (수평)
+                this.sailGroup.visible = true; // 그룹 자체는 항상 보이도록 하고, 애니메이션으로 제어
+
+
+                const figureheadMaterial = new THREE.MeshPhongMaterial({ color: 0xB8860B }); 
+                this.figurehead = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 12), figureheadMaterial);
+                this.figurehead.position.set(0, 0.6, -2.6); 
+                this.shipGroup.add(this.figurehead);
+
+                this.rudder = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.7, 1.0), hullMaterial); 
+                this.rudder.position.set(0, 0.2, 2.6); 
+                this.shipGroup.add(this.rudder);
+
+                this.shipGroup.traverse((object) => {
+                    if (object instanceof THREE.Mesh) {
+                        object.castShadow = true;
+                        object.receiveShadow = true;
+                    }
+                });
+                this.scene.add(this.shipGroup);
+            }
+
+            setupKeyboardControls() {
+                document.addEventListener('keydown', (event) => {
+                    switch (event.key.toLowerCase()) {
+                        case 'w': case 'arrowup': this.keys.forward = true; break;
+                        case 's': case 'arrowdown': this.keys.backward = true; break;
+                        case 'a': case 'arrowleft': this.keys.left = true; break;
+                        case 'd': case 'arrowright': this.keys.right = true; break;
+                        case ' ': this.keys.sail = true; break;
+                    }
+                });
+                document.addEventListener('keyup', (event) => {
+                    switch (event.key.toLowerCase()) {
+                        case 'w': case 'arrowup': this.keys.forward = false; break;
+                        case 's': case 'arrowdown': this.keys.backward = false; break;
+                        case 'a': case 'arrowleft': this.keys.left = false; break;
+                        case 'd': case 'arrowright': this.keys.right = false; break;
+                        case ' ': if (this.keys.sail) { this.toggleSail(); this.keys.sail = false; } break;
+                    }
+                });
+            }
+
+            toggleSail() {
+                if (this.isSailAnimating) return; // 이미 애니메이션 중이면 중복 실행 방지
+                this.isSailAnimating = true;
+
+                this.sailDeployed = !this.sailDeployed;
+                
+                const targetRotationX = this.sailDeployed ? 0 : -Math.PI / 2; // 펼쳐지면 0도, 접히면 -90도
+                const startRotationX = this.sailGroup.rotation.x;
+                const duration = 500; // 애니메이션 지속 시간 (ms)
+                let startTime = null;
+
+                const animateSailRotation = (timestamp) => {
+                    if (!startTime) startTime = timestamp;
+                    const elapsedTime = timestamp - startTime;
+                    const progress = Math.min(elapsedTime / duration, 1);
+
+                    this.sailGroup.rotation.x = lerp(startRotationX, targetRotationX, progress);
+
+                    if (progress < 1) {
+                        requestAnimationFrame(animateSailRotation);
+                    } else {
+                        this.sailGroup.rotation.x = targetRotationX; // 정확한 최종 값 설정
+                        this.isSailAnimating = false; // 애니메이션 종료
+                    }
+                };
+                requestAnimationFrame(animateSailRotation);
+            }
+
+            calculateWindEffect(windDirection, windSpeed) {
+                if (!this.sailDeployed || this.sailGroup.rotation.x > -0.1 ) return 0; // 돛이 거의 수직으로 서 있을 때만 바람 영향
+
+                let angleDiff = Math.abs(this.direction - windDirection);
+                if (angleDiff > 180) angleDiff = 360 - angleDiff;
+                
+                const windFactor = Math.cos(degToRad(angleDiff));
+                let windEffect = 0;
+                if (windFactor > 0) windEffect = windSpeed * windFactor * 0.15; // 바람 효과 계수 약간 증가
+                return windEffect;
+            }
+
+            update(deltaTime, windDirection, windSpeed) {
+                let appliedAcceleration = 0;
+                if (this.keys.forward) appliedAcceleration += this.options.acceleration;
+                if (this.keys.backward) appliedAcceleration -= this.options.acceleration / 2; 
+
+                const windEffect = this.calculateWindEffect(windDirection, windSpeed);
+                this.speed += windEffect * deltaTime * 5; 
+                this.speed += appliedAcceleration * deltaTime * 100; 
+
+                this.speed = clamp(this.speed, -this.options.maxSpeed / 2, this.options.maxSpeed);
+                this.speed *= Math.pow(this.options.dragCoefficient, deltaTime * 60); 
+
+                if (Math.abs(this.speed) < 0.01) this.speed = 0;
+
+                const rotationFactor = Math.max(0.4, Math.min(1, Math.abs(this.speed) / (this.options.maxSpeed / 2))); 
+                if (this.keys.left) this.direction += this.options.rotationSpeed * rotationFactor * 900 * deltaTime; 
+                if (this.keys.right) this.direction -= this.options.rotationSpeed * rotationFactor * 900 * deltaTime; 
+
+                this.direction = ((this.direction % 360) + 360) % 360;
+                const directionRad = degToRad(this.direction);
+                const velocityX = Math.sin(directionRad) * this.speed;
+                const velocityZ = Math.cos(directionRad) * this.speed;
+
+                this.position.x += velocityX * deltaTime;
+                this.position.z += velocityZ * deltaTime;
+
+                this.shipGroup.position.copy(this.position);
+                this.shipGroup.rotation.y = directionRad;
+
+                // 돛대 흔들림 (돛이 펼쳐져 있고 배가 움직일 때)
+                if (this.sailDeployed && this.speed > 0.1 && this.sailGroup.rotation.x > -0.1) {
+                    const swayIntensity = Math.min(0.05, this.speed * 0.005 + windSpeed * 0.002); 
+                    const swayAmount = Math.sin(Date.now() * 0.003) * swayIntensity;
+                    this.mast.rotation.z = swayAmount; 
+                    // this.sailGroup.rotation.z = swayAmount * 0.5; // 돛도 살짝 흔들리게
+                } else {
+                    this.mast.rotation.z = lerp(this.mast.rotation.z, 0, 0.1); 
+                    // this.sailGroup.rotation.z = lerp(this.sailGroup.rotation.z, 0, 0.1);
+                }
+
+                let targetRudderRotation = 0;
+                if (this.keys.left) targetRudderRotation = Math.PI / 8; 
+                else if (this.keys.right) targetRudderRotation = -Math.PI / 8;
+                this.rudder.rotation.y = lerp(this.rudder.rotation.y, targetRudderRotation, 0.1);
+
+                const waveTime = Date.now() * 0.0005;
+                const waveInfluence = Math.min(0.3, windSpeed * 0.02); 
+                this.shipGroup.position.y = Math.sin(waveTime + this.position.x * 0.1 + this.position.z * 0.1) * waveInfluence;
+                this.shipGroup.rotation.z = Math.sin(waveTime * 1.5 + this.position.x * 0.05) * (waveInfluence * 0.2); 
+                this.shipGroup.rotation.x = Math.cos(waveTime + this.position.z * 0.05) * (waveInfluence * 0.15); 
+
+                this.updateUI();
+            }
+
+            updateUI() {
+                const speedElement = document.getElementById('speed');
+                if (speedElement) speedElement.textContent = Math.abs(this.speed).toFixed(1);
+                const directionElement = document.getElementById('direction');
+                if (directionElement) directionElement.textContent = getDirectionString(this.direction);
+            }
+
+            getPosition() { return this.position.clone(); }
+            getDirection() { return this.direction; }
+            getSpeed() { return this.speed; }
+            isSailDeployed() { return this.sailDeployed; }
+        }
+    </script>
+    <script>
+        // js/ocean.js
+        class Ocean {
+            constructor(options = {}) {
+                this.options = Object.assign({
+                    scene: null, renderer: null, camera: null, size: 10000, segments: 128, waterColor: 0x001e0f, 
+                    waterDistortionScale: 3.7, waterSunColor: 0xffffff, skyExposure: 0.5, skyRayleigh: 2, 
+                    skyTurbidity: 10, skyMieCoefficient: 0.005, skyMieDirectionalG: 0.8, fogEnabled: true, 
+                    fogColor: 0x5d8fbd, fogNear: 50, fogFar: 1500, windDirection: randomFloat(0, 360), 
+                    windSpeed: randomFloat(2, 8), timeOfDay: 0.25, 
+                }, options);
+
+                if (!this.options.scene || !this.options.renderer || !this.options.camera) {
+                    throw new Error('Ocean requires scene, renderer, and camera');
+                }
+
+                this.scene = this.options.scene; this.renderer = this.options.renderer; this.camera = this.options.camera;
+                this.windDirection = this.options.windDirection; this.windSpeed = this.options.windSpeed;
+                this.timeOfDay = this.options.timeOfDay; 
+                this.windChangeTimer = randomFloat(10, 30); 
+                this.targetWindDirection = this.windDirection; this.targetWindSpeed = this.windSpeed;
+
+                this.createWater(); this.createSky(); this.setupFog(); this.createLighting(); this.updateSunPosition(); 
+            }
+
+            createWater() {
+                const waterGeometry = new THREE.PlaneGeometry(this.options.size, this.options.size);
+                this.water = new THREE.Water(waterGeometry, {
+                    textureWidth: 512, textureHeight: 512,
+                    waterNormals: new THREE.TextureLoader().load('https://threejs.org/examples/textures/waternormals.jpg', (texture) => {
+                        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+                    }),
+                    alpha: 1.0, sunDirection: new THREE.Vector3(), sunColor: this.options.waterSunColor,
+                    waterColor: this.options.waterColor, distortionScale: this.options.waterDistortionScale,
+                    fog: this.options.fogEnabled
+                });
+                this.water.rotation.x = -Math.PI / 2; this.water.position.y = 0; 
+                this.scene.add(this.water);
+            }
+
+            createSky() {
+                this.sky = new THREE.Sky(); this.sky.scale.setScalar(this.options.size); 
+                this.scene.add(this.sky);
+                const skyUniforms = this.sky.material.uniforms;
+                skyUniforms['turbidity'].value = this.options.skyTurbidity; skyUniforms['rayleigh'].value = this.options.skyRayleigh;
+                skyUniforms['mieCoefficient'].value = this.options.skyMieCoefficient; skyUniforms['mieDirectionalG'].value = this.options.skyMieDirectionalG;
+            }
+
+            setupFog() {
+                if (this.options.fogEnabled) {
+                    this.scene.fog = new THREE.Fog(this.options.fogColor, this.options.fogNear, this.options.fogFar);
+                    this.scene.background = new THREE.Color(this.options.fogColor);
+                }
+            }
+
+            createLighting() {
+                this.ambientLight = new THREE.AmbientLight(0xffffff, 0.2); this.scene.add(this.ambientLight);
+                this.sunLight = new THREE.DirectionalLight(0xffffff, 0.8); 
+                this.sunLight.castShadow = true; this.sunLight.shadow.mapSize.width = 2048; this.sunLight.shadow.mapSize.height = 2048;
+                this.sunLight.shadow.camera.near = 0.5; this.sunLight.shadow.camera.far = 5000; 
+                const shadowCamSize = 200;
+                this.sunLight.shadow.camera.left = -shadowCamSize; this.sunLight.shadow.camera.right = shadowCamSize;
+                this.sunLight.shadow.camera.top = shadowCamSize; this.sunLight.shadow.camera.bottom = -shadowCamSize;
+                this.scene.add(this.sunLight); this.scene.add(this.sunLight.target); 
+            }
+
+            updateSunPosition() {
+                const sunPosition = new THREE.Vector3();
+                const elevation = Math.sin( (this.timeOfDay - 0.25) * Math.PI * 2 ) * 90; 
+                const sunDistance = 1000; 
+                if (elevation > -10) { 
+                    const elevationRad = degToRad(elevation); const azimuthRad = degToRad(180); 
+                    sunPosition.x = sunDistance * Math.cos(elevationRad) * Math.sin(azimuthRad);
+                    sunPosition.y = sunDistance * Math.sin(elevationRad);
+                    sunPosition.z = sunDistance * Math.cos(elevationRad) * Math.cos(azimuthRad);
+                } else { sunPosition.set(0, -sunDistance, 0); }
+                this.sky.material.uniforms['sunPosition'].value.copy(sunPosition);
+                this.water.material.uniforms['sunDirection'].value.copy(sunPosition).normalize();
+                this.sunLight.position.copy(sunPosition); this.sunLight.target.position.set(0,0,0); 
+                const exposure = Math.max(0.1, Math.sin(this.timeOfDay * Math.PI) * 0.5 + 0.1); 
+                this.renderer.toneMappingExposure = exposure;
+                const sunIntensity = Math.max(0, Math.sin(this.timeOfDay * Math.PI)); 
+                this.sunLight.intensity = sunIntensity * 1.5; 
+                this.ambientLight.intensity = sunIntensity * 0.3 + 0.05; 
+                if (this.options.fogEnabled && this.scene.fog) {
+                    const morningColor = new THREE.Color(0.8, 0.7, 0.6); const dayColor = new THREE.Color(this.options.fogColor); 
+                    const eveningColor = new THREE.Color(0.9, 0.6, 0.5); const nightColor = new THREE.Color(0.05, 0.05, 0.15); 
+                    let currentFogColor = new THREE.Color();
+                    if (this.timeOfDay < 0.2 || this.timeOfDay > 0.8) { 
+                        currentFogColor.lerpColors(eveningColor, nightColor, (this.timeOfDay > 0.8 ? (this.timeOfDay - 0.8) / 0.2 : (0.2 - this.timeOfDay) / 0.2) );
+                         if (this.timeOfDay < 0.2) currentFogColor.lerpColors(nightColor, morningColor, (this.timeOfDay / 0.2)); 
+                         else currentFogColor = nightColor;
+                    } else if (this.timeOfDay < 0.4) { currentFogColor.lerpColors(morningColor, dayColor, (this.timeOfDay - 0.2) / 0.2); } 
+                      else if (this.timeOfDay < 0.6) { currentFogColor = dayColor; } 
+                      else { currentFogColor.lerpColors(dayColor, eveningColor, (this.timeOfDay - 0.6) / 0.2); }
+                    this.scene.fog.color.copy(currentFogColor);
+                    if (this.scene.background instanceof THREE.Color) { this.scene.background.copy(currentFogColor); }
+                }
+            }
+
+            getWindDirection() { return this.windDirection; }
+            getWindSpeed() { return this.windSpeed; }
+
+            updateWindInfoUI() {
+                const windElement = document.getElementById('wind');
+                if (windElement) { windElement.textContent = `${this.windSpeed.toFixed(1)} (${getDirectionString(this.windDirection)})`; }
+            }
+
+            simulateWindChanges(deltaTime) {
+                this.windChangeTimer -= deltaTime;
+                if (this.windChangeTimer <= 0) {
+                    this.windChangeTimer = randomFloat(20, 60); 
+                    this.targetWindDirection = (this.windDirection + randomFloat(-60, 60) + 360) % 360; 
+                    this.targetWindSpeed = clamp(this.windSpeed + randomFloat(-3, 3), 1, 15); 
+                }
+                let diff = (this.targetWindDirection - this.windDirection + 360) % 360;
+                if (diff > 180) diff -= 360;
+                this.windDirection = (this.windDirection + diff * 0.01 + 360) % 360; 
+                this.windSpeed = lerp(this.windSpeed, this.targetWindSpeed, 0.01); 
+                this.updateWindInfoUI();
+            }
+
+            updateTimeOfDay(deltaTime) {
+                this.timeOfDay = (this.timeOfDay + deltaTime / 300) % 1; this.updateSunPosition();
+            }
+
+            update(deltaTime) {
+                if (this.water) { this.water.material.uniforms['time'].value += deltaTime * 0.5; }
+                this.simulateWindChanges(deltaTime); this.updateTimeOfDay(deltaTime);
+            }
+        }
+    </script>
+    <script>
+        // js/game.js
+        class Game {
+            constructor(options = {}) {
+                this.options = Object.assign({
+                    containerId: 'game-container', width: window.innerWidth, height: window.innerHeight,
+                    fov: 75, near: 0.1, far: 20000, onProgress: null, onLoad: null
+                }, options);
+                this.isRunning = false; this.clock = new THREE.Clock();
+                this.deltaTime = 0; this.elapsedTime = 0;
+                this.loadingManager = new LoadingManager(this.options.onLoad || (() => {}), this.options.onProgress || (() => {}));
+                this.initScene(); this.initCamera(); this.initRenderer(); this.initControls(); 
+                this.initGameElements(); this.setupEventListeners();
+            }
+
+            initScene() { this.scene = new THREE.Scene(); }
+            initCamera() {
+                this.camera = new THREE.PerspectiveCamera(this.options.fov, this.options.width / this.options.height, this.options.near, this.options.far);
+                this.camera.position.set(0, 15, 25); this.camera.lookAt(0, 0, 0); 
+            }
+            initRenderer() {
+                this.container = document.getElementById(this.options.containerId);
+                if (!this.container) { throw new Error(`Container element with id '${this.options.containerId}' not found`); }
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(this.options.width, this.options.height);
+                this.renderer.setPixelRatio(window.devicePixelRatio);
+                this.renderer.toneMapping = THREE.ACESFilmicToneMapping; 
+                this.renderer.toneMappingExposure = 0.6; 
+                this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+                this.container.appendChild(this.renderer.domElement);
+            }
+            initControls() {
+                this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+                this.controls.enablePan = true; this.controls.minDistance = 5; this.controls.maxDistance = 100; 
+                this.controls.maxPolarAngle = Math.PI / 2 - 0.05; 
+                this.controls.target.set(0, 2, 0); this.controls.enabled = false; this.controls.update();
+            }
+            setupEventListeners() {
+                window.addEventListener('resize', () => this.resize());
+                document.addEventListener('keydown', (event) => {
+                    if (event.key >= '1' && event.key <= '4') {
+                        this.cameraMode = parseInt(event.key);
+                        this.controls.enabled = (this.cameraMode === 4); 
+                        this.updateCameraPosition(); 
+                    }
+                });
+            }
+            initGameElements() {
+                this.loadingManager.addItem(); this.loadingManager.addItem(); 
+                this.ocean = new Ocean({ scene: this.scene, renderer: this.renderer, camera: this.camera });
+                this.loadingManager.itemLoaded();
+                this.ship = new Ship({ scene: this.scene, initialPosition: new THREE.Vector3(0, 0.5, 0) });
+                this.loadingManager.itemLoaded();
+                this.createIslands(15); // Island count is 15
+                this.createTargets(10); 
+                this.cameraMode = 1; this.updateCameraPosition(); 
+            }
+            createIslands(count) {
+                this.islands = [];
+                for (let i = 0; i < count; i++) {
+                    const distance = randomFloat(200, 800); const angle = randomFloat(0, Math.PI * 2);
+                    const x = Math.cos(angle) * distance; const z = Math.sin(angle) * distance;
+                    const size = randomFloat(30, 80); 
+                    this.createIsland(x, z, size);
+                }
+            }
+            createIsland(x, z, size) {
+                const islandGroup = new THREE.Group(); islandGroup.position.set(x, 0, z);
+                const segments = randomInt(3,6); let currentHeight = 0;
+                for(let i=0; i<segments; i++) {
+                    const segmentHeight = randomFloat(size * 0.1, size * 0.3);
+                    const segmentRadius = size * (1 - (i*0.15)) * randomFloat(0.8, 1.2);
+                    if(segmentRadius <=0) continue;
+                    const islandGeo = new THREE.CylinderGeometry(segmentRadius * 0.8, segmentRadius, segmentHeight, 12);
+                    const islandMat = new THREE.MeshPhongMaterial({ color: new THREE.Color().setHSL(randomFloat(0.1, 0.15), randomFloat(0.3, 0.6), randomFloat(0.2, 0.4)), shininess: 5});
+                    const islandMesh = new THREE.Mesh(islandGeo, islandMat);
+                    islandMesh.position.y = currentHeight + segmentHeight / 2 - 2; 
+                    islandMesh.castShadow = true; islandMesh.receiveShadow = true;
+                    islandGroup.add(islandMesh); currentHeight += segmentHeight * 0.7; 
+                }
+                const sandGeometry = new THREE.CylinderGeometry(size * 1.3, size * 1.6, size * 0.05, 16);
+                const sandMaterial = new THREE.MeshPhongMaterial({ color: 0xE0CBA8, shininess: 2 }); 
+                const sand = new THREE.Mesh(sandGeometry, sandMaterial); sand.position.y = -1.5; 
+                sand.receiveShadow = true; islandGroup.add(sand);
+                const treeCount = randomInt(Math.floor(size/10), Math.floor(size/5));
+                for (let i = 0; i < treeCount; i++) {
+                    const treeRadius = randomFloat(0, size * 0.8); const treeAngle = randomFloat(0, Math.PI * 2);
+                    const treeX = Math.cos(treeAngle) * treeRadius; const treeZ = Math.sin(treeAngle) * treeRadius;
+                    const islandHeightAtTree = Math.max(0, (size - treeRadius) * 0.1); 
+                    const treeHeight = randomFloat(5, 15);
+                    this.createTree(treeX, islandHeightAtTree, treeZ, treeHeight, islandGroup);
+                }
+                this.scene.add(islandGroup);
+                this.islands.push({ position: new THREE.Vector3(x, 0, z), size: size, mesh: islandGroup });
+            }
+            createTree(x, y, z, height, parent) {
+                const treeGroup = new THREE.Group(); treeGroup.position.set(x, y, z); 
+                const trunkRadius = height * 0.05;
+                const trunkGeometry = new THREE.CylinderGeometry(trunkRadius, trunkRadius * 1.5, height, 6);
+                const trunkMaterial = new THREE.MeshPhongMaterial({ color: 0x5C3A21, shininess: 5 }); 
+                const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial); trunk.position.y = height / 2;
+                trunk.castShadow = true; treeGroup.add(trunk);
+                const leafClumps = randomInt(3, 5);
+                for (let i = 0; i < leafClumps; i++) {
+                    const leafSize = randomFloat(height * 0.2, height * 0.4);
+                    const leavesGeometry = new THREE.SphereGeometry(leafSize, 5, 4); 
+                    const leavesMaterial = new THREE.MeshPhongMaterial({ color: new THREE.Color().setHSL(randomFloat(0.25, 0.35), randomFloat(0.5, 0.8), randomFloat(0.3, 0.5)), shininess: 10 });
+                    const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
+                    leaves.position.set(randomFloat(-leafSize*0.3,leafSize*0.3), height*0.8 + randomFloat(-leafSize*0.2,leafSize*0.2), randomFloat(-leafSize*0.3,leafSize*0.3));
+                    leaves.castShadow = true; treeGroup.add(leaves);
+                }
+                parent.add(treeGroup);
+            }
+            createTargets(count) {
+                this.targets = [];
+                for (let i = 0; i < count; i++) {
+                    const distance = randomFloat(100, 600); const angle = randomFloat(0, Math.PI * 2);
+                    const x = Math.cos(angle) * distance; const z = Math.sin(angle) * distance;
+                    this.createTarget(x, z, i); 
+                }
+            }
+            createTarget(x, z, id) {
+                const targetGroup = new THREE.Group(); targetGroup.position.set(x, 0, z); 
+                const buoyRadius = 0.8; const buoyHeight = 1.5;
+                const buoyGeometry = new THREE.CylinderGeometry(buoyRadius, buoyRadius*0.7, buoyHeight, 10);
+                const buoyMaterial = new THREE.MeshPhongMaterial({ color: Math.random()*0xff0000 + 0x00ff00, shininess: 30 }); 
+                const buoy = new THREE.Mesh(buoyGeometry, buoyMaterial); buoy.position.y = buoyHeight/2 - 0.5; 
+                buoy.castShadow = true; targetGroup.add(buoy);
+                const poleHeight = 2.5;
+                const poleGeometry = new THREE.CylinderGeometry(0.05, 0.05, poleHeight, 6);
+                const poleMaterial = new THREE.MeshPhongMaterial({ color: 0x666666 });
+                const flagPole = new THREE.Mesh(poleGeometry, poleMaterial); 
+                flagPole.position.y = buoy.position.y + buoyHeight/2 + poleHeight/2;
+                flagPole.castShadow = true; targetGroup.add(flagPole);
+                const flagWidth = 1.2; const flagHeight = 0.8;
+                const flagGeometry = new THREE.PlaneGeometry(flagWidth, flagHeight);
+                const flagMaterial = new THREE.MeshPhongMaterial({ color: 0xffff00, side: THREE.DoubleSide, shininess: 10});
+                const flag = new THREE.Mesh(flagGeometry, flagMaterial); 
+                flag.position.set(flagWidth/2, flagPole.position.y + poleHeight/2 - flagHeight/2, 0);
+                targetGroup.add(flag);
+                this.scene.add(targetGroup);
+                this.targets.push({ id: id, position: new THREE.Vector3(x,0,z), mesh: targetGroup, collected: false });
+            }
+            updateCameraPosition() {
+                if (!this.ship) return; 
+                const shipPosition = this.ship.getPosition(); const shipDirectionRad = degToRad(this.ship.getDirection());
+                const lerpFactor = 0.05;
+                switch (this.cameraMode) {
+                    case 1: 
+                        const offset = new THREE.Vector3(-Math.sin(shipDirectionRad)*20, 10, -Math.cos(shipDirectionRad)*20);
+                        const targetPos1 = shipPosition.clone().add(offset);
+                        this.camera.position.lerp(targetPos1, lerpFactor);
+                        this.camera.lookAt(shipPosition.x, shipPosition.y + 2, shipPosition.z); 
+                        break;
+                    case 2: 
+                        const firstPersonOffset = new THREE.Vector3(Math.sin(shipDirectionRad)*0.5, 2.5, Math.cos(shipDirectionRad)*0.5); 
+                        const targetPos2 = shipPosition.clone().add(firstPersonOffset);
+                        this.camera.position.lerp(targetPos2, lerpFactor*2); 
+                        const lookAtOffset = new THREE.Vector3(Math.sin(shipDirectionRad)*10, 1.5, Math.cos(shipDirectionRad)*10);
+                        this.camera.lookAt(shipPosition.clone().add(lookAtOffset));
+                        break;
+                    case 3: 
+                        const targetPos3 = new THREE.Vector3(shipPosition.x, shipPosition.y + 40, shipPosition.z);
+                        this.camera.position.lerp(targetPos3, lerpFactor);
+                        this.camera.lookAt(shipPosition);
+                        break;
+                    case 4: 
+                        if (this.controls.enabled) { this.controls.target.lerp(shipPosition, lerpFactor); } 
+                        else { 
+                             const offsetFree = new THREE.Vector3(-Math.sin(shipDirectionRad)*30, 20, -Math.cos(shipDirectionRad)*30);
+                             const targetPosFree = shipPosition.clone().add(offsetFree);
+                             this.camera.position.lerp(targetPosFree, lerpFactor);
+                             this.camera.lookAt(shipPosition.x, shipPosition.y + 2, shipPosition.z);
+                        }
+                        break;
+                }
+                 if (this.controls.enabled) { this.controls.update(); }
+            }
+            detectCollisions() {
+                if (!this.ship) return;
+                const shipPosition = this.ship.getPosition(); const shipRadius = 2; 
+                for (const island of this.islands) {
+                    const distanceToIsland = shipPosition.distanceTo(island.position);
+                    if (distanceToIsland < island.size * 0.7 + shipRadius) { 
+                        this.ship.speed *= 0.8; 
+                        const pushDirection = shipPosition.clone().sub(island.position).normalize();
+                        this.ship.position.add(pushDirection.multiplyScalar(0.2)); 
+                    }
+                }
+                for (const target of this.targets) {
+                    if (!target.collected) {
+                        const distanceToTarget = shipPosition.distanceTo(target.position);
+                        if (distanceToTarget < 3 + shipRadius) { 
+                            target.collected = true; this.createCollectionEffect(target.position, target.mesh);
+                        }
+                    }
+                }
+            }
+            createCollectionEffect(position, targetMesh) {
+                const particleCount = 30;
+                const particleMaterial = new THREE.PointsMaterial({ color: 0xffcc00, size: 0.5, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending });
+                const particlesGeometry = new THREE.BufferGeometry();
+                const particlePositions = []; const particleVelocities = [];
+                for (let i = 0; i < particleCount; i++) {
+                    particlePositions.push(position.x+randomFloat(-0.5,0.5), position.y+randomFloat(0.5,2.5), position.z+randomFloat(-0.5,0.5));
+                    particleVelocities.push(randomFloat(-1,1), randomFloat(1,3), randomFloat(-1,1));
+                }
+                particlesGeometry.setAttribute('position', new THREE.Float32BufferAttribute(particlePositions, 3));
+                const points = new THREE.Points(particlesGeometry, particleMaterial); this.scene.add(points);
+                let lifespan = 1.0; 
+                const animateParticles = () => {
+                    if (lifespan <= 0) { this.scene.remove(points); if (targetMesh) this.scene.remove(targetMesh); return; }
+                    lifespan -= this.deltaTime; 
+                    const currentPositions = points.geometry.attributes.position.array;
+                    for (let i = 0; i < particleCount; i++) {
+                        currentPositions[i*3] += particleVelocities[i*3] * this.deltaTime;     
+                        currentPositions[i*3+1] += particleVelocities[i*3+1] * this.deltaTime; 
+                        currentPositions[i*3+2] += particleVelocities[i*3+2] * this.deltaTime; 
+                        particleVelocities[i*3+1] -= 5 * this.deltaTime; 
+                    }
+                    points.geometry.attributes.position.needsUpdate = true; particleMaterial.opacity = lifespan; 
+                    requestAnimationFrame(animateParticles);
+                };
+                animateParticles();
+            }
+            start() { if (!this.isRunning) { this.isRunning = true; this.clock.start(); this.animate(); } }
+            stop() { this.isRunning = false; this.clock.stop(); }
+            animate() {
+                if (!this.isRunning) return;
+                requestAnimationFrame(() => this.animate());
+                this.deltaTime = this.clock.getDelta(); this.elapsedTime = this.clock.getElapsedTime();
+                if (this.ship) { this.ship.update(this.deltaTime, this.ocean.getWindDirection(), this.ocean.getWindSpeed()); }
+                if (this.ocean) { this.ocean.update(this.deltaTime); }
+                this.updateCameraPosition(); this.detectCollisions(); this.animateTargets();
+                this.renderer.render(this.scene, this.camera);
+            }
+            animateTargets() {
+                this.targets.forEach(target => {
+                    if (!target.collected && target.mesh) {
+                        target.mesh.position.y = Math.sin(this.elapsedTime*1.5 + target.position.x*0.2 + target.position.z*0.2)*0.3;
+                        const flag = target.mesh.children.find(child => child.geometry instanceof THREE.PlaneGeometry);
+                        if (flag) { flag.rotation.y = Math.sin(this.elapsedTime*2.5 + target.id)*0.4 + (Math.PI/2); }
+                    }
+                });
+            }
+            resize() {
+                const width = window.innerWidth; const height = window.innerHeight;
+                this.camera.aspect = width / height; this.camera.updateProjectionMatrix();
+                this.renderer.setSize(width, height);
+            }
+        }
+    </script>
+    <script>
+        // main.js
+        document.addEventListener('DOMContentLoaded', function() {
+            function createLoadingScreen() {
+                const loadingScreen = document.createElement('div'); loadingScreen.id = 'loading-screen';
+                const loadingText = document.createElement('div'); loadingText.id = 'loading-text'; loadingText.textContent = '게임 로딩 중...';
+                const loadingBarContainer = document.createElement('div'); loadingBarContainer.className = 'loading-bar-container';
+                const loadingBar = document.createElement('div'); loadingBar.className = 'loading-bar';
+                loadingBarContainer.appendChild(loadingBar); loadingScreen.appendChild(loadingText); loadingScreen.appendChild(loadingBarContainer);
+                document.body.appendChild(loadingScreen);
+                return { screen: loadingScreen, bar: loadingBar, text: loadingText };
+            }
+            function removeLoadingScreen(loadingElements) {
+                if (loadingElements && loadingElements.screen) {
+                    loadingElements.screen.style.opacity = '0';
+                    setTimeout(() => { if (loadingElements.screen.parentNode) { loadingElements.screen.parentNode.removeChild(loadingElements.screen); } }, 500); 
+                }
+            }
+            const loadingElements = createLoadingScreen(); let gameInstance = null;
+            console.log('게임 초기화 시작');
+            if (typeof THREE === 'undefined') { console.error('THREE.js 라이브러리를 찾을 수 없습니다!'); loadingElements.text.textContent = '오류: THREE.js 로드 실패'; loadingElements.bar.style.backgroundColor = 'red'; return; }
+            if (typeof THREE.OrbitControls === 'undefined') { console.warn('OrbitControls를 찾을 수 없습니다! 자유 카메라 모드가 제한될 수 있습니다.'); }
+            if (typeof THREE.Water === 'undefined') { console.error('Water를 찾을 수 없습니다!'); loadingElements.text.textContent = '오류: Water 로드 실패'; loadingElements.bar.style.backgroundColor = 'red'; return; }
+            if (typeof THREE.Sky === 'undefined') { console.error('Sky를 찾을 수 없습니다!'); loadingElements.text.textContent = '오류: Sky 로드 실패'; loadingElements.bar.style.backgroundColor = 'red'; return; }
+            try {
+                if (typeof Game === 'undefined') { throw new Error('Game 클래스를 찾을 수 없습니다.'); }
+                gameInstance = new Game({
+                    containerId: 'game-container',
+                    onProgress: function(progress) { loadingElements.bar.style.width = `${progress * 100}%`; console.log(`로딩 진행: ${progress * 100}%`); },
+                    onLoad: function() {
+                        console.log('게임 리소스 로딩 완료'); loadingElements.text.textContent = '로딩 완료! 게임 시작 중...';
+                        setTimeout(() => { removeLoadingScreen(loadingElements); if (gameInstance) { gameInstance.start(); console.log('게임 시작됨'); } }, 500); 
+                    }
+                });
+            } catch (error) {
+                console.error('게임 초기화 중 심각한 오류 발생:', error); console.error('오류 스택:', error.stack);
+                loadingElements.text.textContent = '게임 로딩 실패: ' + error.message;
+                loadingElements.bar.style.width = '100%'; loadingElements.bar.style.backgroundColor = 'red';
+            }
+        });
+    </script>
+</body>
+</html>
