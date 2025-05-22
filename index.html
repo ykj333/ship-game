@@ -6,6 +6,14 @@
     <title>항해 게임</title>
     <style>
         /* style.css */
+        :root {
+            --background-color: #000;
+            --text-color: #fff;
+            --primary-color: #4a9df5;
+            --info-background-color: rgba(0, 0, 0, 0.7);
+            --loading-bar-background-color: #333;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -15,13 +23,14 @@
         body {
             font-family: 'Arial', sans-serif;
             overflow: hidden; /* Prevent scrollbars from appearing due to game canvas */
-            background-color: #000; /* Fallback background */
-            color: #fff;
+            background-color: var(--background-color); /* Fallback background */
+            color: var(--text-color);
             margin: 0; /* Ensure no default body margin */
             height: 100vh; /* Full viewport height */
             display: flex; /* For centering game container if needed */
             justify-content: center;
             align-items: center;
+            transition: background-color 0.3s ease, color 0.3s ease; /* Smooth transition for theme change */
         }
 
         #game-container {
@@ -37,24 +46,25 @@
             position: absolute;
             top: 20px;
             left: 20px;
-            background-color: rgba(0, 0, 0, 0.7);
+            background-color: var(--info-background-color);
             padding: 15px;
             border-radius: 10px;
             z-index: 2;
             max-width: 300px; /* Max width for info panel */
-            color: #fff; /* Ensure text is visible */
+            color: var(--text-color); /* Ensure text is visible */
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
 
         h1 {
             font-size: 24px;
             margin-bottom: 15px;
-            color: #4a9df5;
+            color: var(--primary-color);
             text-align: center;
         }
 
         #controls {
             margin-bottom: 15px;
-            border-bottom: 1px solid #4a9df5;
+            border-bottom: 1px solid var(--primary-color);
             padding-bottom: 10px;
         }
 
@@ -82,7 +92,24 @@
 
         #stats span {
             font-weight: bold;
-            color: #4a9df5;
+            color: var(--primary-color);
+        }
+
+        #theme-switcher {
+            background-color: var(--primary-color);
+            color: var(--background-color); /* Or a contrasting text color variable if defined */
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 15px;
+            display: block; /* Or inline-block depending on desired layout */
+            width: 100%; /* Make it full width within the info panel */
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        #theme-switcher:hover {
+            opacity: 0.9;
         }
 
         /* 로딩 화면 */
@@ -92,17 +119,17 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: #000;
+            background-color: var(--background-color);
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             z-index: 999;
-            transition: opacity 0.5s ease;
+            transition: opacity 0.5s ease, background-color 0.3s ease;
         }
 
         #loading-text {
-            color: #4a9df5;
+            color: var(--primary-color);
             font-size: 24px;
             margin-bottom: 20px;
         }
@@ -110,7 +137,7 @@
         .loading-bar-container {
             width: 300px;
             height: 20px;
-            background-color: #333;
+            background-color: var(--loading-bar-background-color);
             border-radius: 10px;
             overflow: hidden;
         }
@@ -118,9 +145,53 @@
         .loading-bar {
             height: 100%;
             width: 0%; /* Initial width */
-            background-color: #4a9df5;
+            background-color: var(--primary-color);
             transition: width 0.3s ease;
         }
+
+        /* Light Mode Styles */
+        body.light-mode {
+            --background-color: #fff;
+            --text-color: #333;
+            --primary-color: #007bff; 
+            --info-background-color: rgba(230, 230, 230, 0.8);
+            --loading-bar-background-color: #ccc;
+        }
+
+        body.light-mode #info {
+            background-color: var(--info-background-color);
+            color: var(--text-color);
+        }
+
+        body.light-mode h1 {
+            color: var(--primary-color);
+        }
+
+        body.light-mode #controls {
+            border-bottom: 1px solid var(--primary-color);
+        }
+
+        body.light-mode #stats span {
+            color: var(--primary-color);
+        }
+
+        body.light-mode .loading-bar-container {
+            background-color: var(--loading-bar-background-color);
+        }
+
+        body.light-mode .loading-bar {
+            background-color: var(--primary-color);
+        }
+
+        body.light-mode #loading-text {
+            color: var(--primary-color);
+        }
+
+        body.light-mode #theme-switcher {
+            background-color: var(--primary-color);
+            color: #fff; /* Ensuring text is white on primary color background */
+        }
+
     </style>
 </head>
 <body>
@@ -142,6 +213,7 @@
             <p>방향: <span id="direction">북</span></p>
             <p>바람: <span id="wind">0</span> 노트</p>
         </div>
+        <button id="theme-switcher">Switch to Light Mode</button> 
     </div>
 
     <div id="game-container"></div>
@@ -964,6 +1036,20 @@
                 console.error('게임 초기화 중 심각한 오류 발생:', error); console.error('오류 스택:', error.stack);
                 loadingElements.text.textContent = '게임 로딩 실패: ' + error.message;
                 loadingElements.bar.style.width = '100%'; loadingElements.bar.style.backgroundColor = 'red';
+            }
+        });
+    </script>
+    <script>
+        // Theme switcher logic
+        const themeSwitcher = document.getElementById('theme-switcher');
+        const body = document.body;
+
+        themeSwitcher.addEventListener('click', () => {
+            body.classList.toggle('light-mode');
+            if (body.classList.contains('light-mode')) {
+                themeSwitcher.textContent = 'Switch to Dark Mode';
+            } else {
+                themeSwitcher.textContent = 'Switch to Light Mode';
             }
         });
     </script>
